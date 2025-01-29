@@ -14,53 +14,65 @@ const App = () => {
 
   useEffect(() => {
     setMe(uuidV4()); // Generate a unique ID for the user
-
+  
+    const iceCandidateQueue = []; // Moved inside the useEffect to be scoped properly
+  
+    // When a new user connects, start the call
     socket.on("user-connected", (userId) => {
       console.log("User connected:", userId);
       callUser(userId);
     });
-
+  
+    // Handle incoming offer
     socket.on("offer", async (data) => {
-      if (!peerConnection.current) setupPeerConnection();
-      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await peerConnection.current.createAnswer();
-      await peerConnection.current.setLocalDescription(answer);
-      socket.emit("answer", { answer, roomId: data.roomId });
+      if (!peerConnection.current) setupPeerConnection(); // Ensure peer connection exists
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer)); // Set remote description
+  
+      const answer = await peerConnection.current.createAnswer(); // Create answer to the offer
+      await peerConnection.current.setLocalDescription(answer); // Set local description with the answer
+      socket.emit("answer", { answer, roomId: data.roomId }); // Send answer back to the other user
     });
-
+  
+    // Handle incoming answer from the other peer
     socket.on("answer", async (data) => {
-      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+      console.log("✅ Received answer, setting remote description");
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer)); // Set remote description
+      processIceQueue(); // Process any queued ICE candidates after the remote description is set
     });
-
-    const iceCandidateQueue = [];
-
+  
+    // Handle incoming ICE candidates
     socket.on("ice-candidate", async (data) => {
       if (!peerConnection.current.remoteDescription) {
         console.warn("⚠️ ICE candidate received before remote description. Storing...");
-        iceCandidateQueue.push(data.candidate);
+        iceCandidateQueue.push(data.candidate); // Store the candidate until the remote description is set
       } else {
         console.log("✅ ICE Candidate Added:", data.candidate);
-        await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate)); // Add ICE candidate
       }
     });
-
-    // Process ICE candidates after setting remote description
+  
+    // Function to process queued ICE candidates after the remote description is set
     const processIceQueue = async () => {
       while (iceCandidateQueue.length > 0) {
         await peerConnection.current.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift()));
       }
     };
-
-    // Call this after setting remote description
-    peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer)).then(() => {
-      processIceQueue();
-    });
-
+  
+    // Handle user disconnection
     socket.on("user-disconnected", (userId) => {
       console.log("User disconnected:", userId);
-      if (peerVideo.current) peerVideo.current.srcObject = null;
+      if (peerVideo.current) peerVideo.current.srcObject = null; // Stop video stream of the disconnected user
     });
-  }, []);
+  
+    // Cleanup on component unmount
+    return () => {
+      socket.off("user-connected");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("ice-candidate");
+      socket.off("user-disconnected");
+    };
+  }, []);  
 
   const joinRoom = async () => {
     if (roomId) {
