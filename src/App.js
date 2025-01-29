@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 import { v4 as uuidV4 } from "uuid";
 
-const socket = io("https://videobackend-theta.vercel.app"); // Change this for production
+const socket = io("https://videobackend-production.up.railway.app"); // Change this for production
 
 const App = () => {
   const [me, setMe] = useState("");
