@@ -32,9 +32,18 @@ const App = () => {
       await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
     });
 
-    socket.on("ice-candidate", (data) => {
+    socket.on("ice-candidate", async (data) => {
       if (peerConnection.current) {
-        peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        if (peerConnection.current.remoteDescription) {
+          await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+          console.warn("ICE candidate received before remote description. Storing...");
+          setTimeout(() => {
+            if (peerConnection.current.remoteDescription) {
+              peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+            }
+          }, 1000); // Delay handling if remoteDescription isn't set yet
+        }
       }
     });
 
