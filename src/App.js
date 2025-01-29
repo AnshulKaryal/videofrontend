@@ -73,16 +73,21 @@ const App = () => {
   };
 
   const setupPeerConnection = () => {
+    if (peerConnection.current) {
+      peerConnection.current.close(); // Close old connection
+      peerConnection.current = null;
+    }
+    
     peerConnection.current = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-
+  
     peerConnection.current.onicecandidate = (event) => {
       if (event.candidate) {
         socket.emit("ice-candidate", { candidate: event.candidate, roomId });
       }
     };
-
+  
     peerConnection.current.ontrack = (event) => {
       if (peerVideo.current) {
         peerVideo.current.srcObject = event.streams[0];
