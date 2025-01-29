@@ -32,19 +32,28 @@ const App = () => {
       await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
     });
 
+    const iceCandidateQueue = [];
+
     socket.on("ice-candidate", async (data) => {
-      if (peerConnection.current) {
-        if (peerConnection.current.remoteDescription) {
-          await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } else {
-          console.warn("ICE candidate received before remote description. Storing...");
-          setTimeout(() => {
-            if (peerConnection.current.remoteDescription) {
-              peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-            }
-          }, 1000); // Delay handling if remoteDescription isn't set yet
-        }
+      if (!peerConnection.current.remoteDescription) {
+        console.warn("⚠️ ICE candidate received before remote description. Storing...");
+        iceCandidateQueue.push(data.candidate);
+      } else {
+        console.log("✅ ICE Candidate Added:", data.candidate);
+        await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
       }
+    });
+
+    // Process ICE candidates after setting remote description
+    const processIceQueue = async () => {
+      while (iceCandidateQueue.length > 0) {
+        await peerConnection.current.addIceCandidate(new RTCIceCandidate(iceCandidateQueue.shift()));
+      }
+    };
+
+    // Call this after setting remote description
+    peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer)).then(() => {
+      processIceQueue();
     });
 
     socket.on("user-disconnected", (userId) => {
@@ -67,51 +76,66 @@ const App = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       myVideo.current.srcObject = stream;
       myVideo.current.play();
+      console.log("✅ Local video stream started:", stream);
     } catch (error) {
-      console.error("Error accessing media devices.", error);
+      console.error("❌ Error accessing media devices:", error);
     }
   };
 
   const setupPeerConnection = () => {
     if (peerConnection.current) {
-      peerConnection.current.close(); // Close old connection
+      peerConnection.current.close();
       peerConnection.current = null;
     }
-    
+  
     peerConnection.current = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
   
+    console.log("✅ New PeerConnection Created");
+  
     peerConnection.current.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log("📡 ICE Candidate Sent:", event.candidate);
         socket.emit("ice-candidate", { candidate: event.candidate, roomId });
       }
     };
   
     peerConnection.current.ontrack = (event) => {
+      console.log("📹 Remote track received:", event.streams[0]);
       if (peerVideo.current) {
         peerVideo.current.srcObject = event.streams[0];
+        peerVideo.current.play();
       }
     };
+    
+  
+    peerConnection.current.onconnectionstatechange = () => {
+      console.log("🔄 Connection State:", peerConnection.current.connectionState);
+    };
   };
+  
 
   const callUser = async (userId) => {
     if (!peerConnection.current) setupPeerConnection();
-    
+  
     const stream = myVideo.current.srcObject;
-    
-    // Ensure tracks are added only once
     const senders = peerConnection.current.getSenders();
+  
     stream.getTracks().forEach((track) => {
-      if (!senders.find((s) => s.track === track)) {
+      if (!senders.some((s) => s.track === track)) {
+        console.log("🎥 Adding local track:", track);
         peerConnection.current.addTrack(track, stream);
       }
     });
   
     const offer = await peerConnection.current.createOffer();
     await peerConnection.current.setLocalDescription(offer);
+    console.log("📞 Sending offer to", userId);
+  
     socket.emit("offer", { offer, roomId });
   };
+  
 
   return (
     <div style={{ textAlign: "center", padding: "20px" }}>
