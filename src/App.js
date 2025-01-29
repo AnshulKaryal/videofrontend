@@ -92,8 +92,17 @@ const App = () => {
 
   const callUser = async (userId) => {
     if (!peerConnection.current) setupPeerConnection();
+    
     const stream = myVideo.current.srcObject;
-    stream.getTracks().forEach((track) => peerConnection.current.addTrack(track, stream));
+    
+    // Ensure tracks are added only once
+    const senders = peerConnection.current.getSenders();
+    stream.getTracks().forEach((track) => {
+      if (!senders.find((s) => s.track === track)) {
+        peerConnection.current.addTrack(track, stream);
+      }
+    });
+  
     const offer = await peerConnection.current.createOffer();
     await peerConnection.current.setLocalDescription(offer);
     socket.emit("offer", { offer, roomId });
